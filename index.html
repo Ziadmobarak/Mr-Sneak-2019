@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mr Sneak</title>
+<style>
+:root{--b:#1e63d6;--bl:#eef4ff;--g:#f4f5f7;--t:#1c2330;--m:#6b7280;--r:#d93636}
+*{box-sizing:border-box}
+body{margin:0;font-family:Tahoma,Arial,sans-serif;background:var(--g);color:var(--t)}
+header{background:var(--b);color:#fff;padding:14px 18px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;position:sticky;top:0;z-index:5}
+header a{color:#fff;text-decoration:none;margin-inline-start:12px;font-weight:bold}
+main{max-width:1000px;margin:auto;padding:16px}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:14px}
+.card{background:#fff;border-radius:12px;padding:12px;box-shadow:0 1px 3px #0001}
+.card img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:8px;background:#ddd}
+.btn{background:var(--b);color:#fff;border:0;border-radius:8px;padding:9px 14px;cursor:pointer;font-size:15px;text-decoration:none;display:inline-block}
+.btn:disabled{background:#9db8e8;cursor:not-allowed}
+.btn.red{background:var(--r)}.btn.gray{background:#6b7280}.btn.off{background:#b9c7e0}
+input,select{padding:9px;border:1px solid #ccd;border-radius:8px;font-size:15px;width:100%;margin:4px 0}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+table{width:100%;border-collapse:collapse;background:#fff;font-size:14px}
+td,th{padding:8px;border-bottom:1px solid #eee;text-align:right;vertical-align:top}
+.stats{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-bottom:14px}
+.stat{background:#fff;border-radius:12px;padding:14px;text-align:center}
+.stat b{display:block;font-size:26px;color:var(--b)}
+.tabs{margin-bottom:10px}.tabs button{margin:0 0 6px 6px}
+.muted{color:var(--m);font-size:13px}
+.inv{background:#fff;padding:22px;border-radius:12px;max-width:640px;margin:auto}
+.toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:#222;color:#fff;padding:10px 18px;border-radius:8px;display:none;z-index:9}
+@media print{header,.noprint{display:none}body{background:#fff}}
+</style>
+</head>
+<body>
+<header><b>Mr Sneak</b><nav><a href="#/">المتجر</a><a href="#/cart">السلة (<span id="cc">0</span>)</a><a href="#/account">حسابي</a><a href="#/admin">الإدارة</a></nav></header>
+<main id="app"></main>
+<div class="toast" id="toast"></div>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+<script>
+/* ===== الإعدادات: ضع بيانات مشروعك من Firebase Console ===== */
+const FIREBASE_CONFIG={apiKey:"AIzaSyCtc6N0b3RUYAeMta4tXG1R7ZhsFX8qKwU",authDomain:"mr-sneak-store.firebaseapp.com",projectId:"mr-sneak-store",storageBucket:"mr-sneak-store.firebasestorage.app",messagingSenderId:"234353600238",appId:"1:234353600238:web:05dbc99bd2fd723644b5ff"};
+const ADMIN_EMAIL="ziadmobarak2004@gmail.com";
+const SHIPPING=50;
+const ABANDON_MS=30*60*1000;
+
+firebase.initializeApp(FIREBASE_CONFIG);
+const db=firebase.firestore(),auth=firebase.auth();
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const money=n=>n+" ج.م";
+const fmt=t=>new Date(t).toLocaleString("ar-EG");
+function toast(m){const t=$("#toast");t.textContent=m;t.style.display="block";clearTimeout(t._h);t._h=setTimeout(()=>t.style.display="none",2400)}
+
+let products=[],cart=JSON.parse(localStorage.getItem("cart")||"[]");
+let currentUser=null,tab="visitors",adminOn=false,firstOrders=true;
+let orders=[],carts=[],visitors=[];
+
+/* ===== تتبع الزوار ===== */
+let vid=localStorage.getItem("vid");
+if(!vid){vid="v"+Date.now().toString(36)+Math.random().toString(36).slice(2,8);localStorage.setItem("vid",vid)}
+const ua=navigator.userAgent;
+const dev={
+  device:/iPad|Tablet/.test(ua)?"تابلت":/Mobi|Android|iPhone/.test(ua)?"موبايل":"كمبيوتر",
+  browser:/Edg\//.test(ua)?"Edge":/Chrome\//.test(ua)?"Chrome":/Safari\//.test(ua)?"Safari":/Firefox\//.test(ua)?"Firefox":"أخرى",
+  screen:screen.width+"x"+screen.height
+};
+function osInfo(s){let m;if(m=s.match(/Android ([\d.]+)/))return"أندرويد "+m[1];if(m=s.match(/iPhone OS ([\d_]+)/))return"iOS "+m[1].replace(/_/g,".");if(/Windows/.test(s))return"ويندوز";if(/Mac OS/.test(s))return"ماك";return"أخرى"}
+function modelOf(s){const m=s.match(/Android[^;]*;\s*([^;)]+)\)/);return m?m[1].trim():(/iPhone/.test(s)?"iPhone":"")}
+
+async function trackVisit(){
+  let geo=JSON.parse(localStorage.getItem("geo")||"null");
+  if(!geo){try{const j=await(await fetch("https://ipapi.co/json/")).json();geo={city:j.city,country:j.country_name};localStorage.setItem("geo",JSON.stringify(geo))}catch(e){geo={}}}
+  db.collection("visitors").doc(vid).set({vid,device:dev.device,os:osInfo(ua),model:modelOf(ua),browser:dev.browser,screen:dev.screen,
+    city:geo.city||"",country:geo.country||"",page:location.hash||"#/",lastSeen:Date.now(),
+    userType:currentUser?"مسجل":"زائر",...(currentUser?{email:currentUser.email}:{})},{merge:true}).catch(()=>{});
+}
+
+/* ===== السلة ===== */
+function updateCount(){$("#cc").textContent=cart.reduce((a,i)=>a+i.qty,0)}
+function saveCart(){
+  localStorage.setItem("cart",JSON.stringify(cart));updateCount();
+  db.collection("carts").doc(vid).set({vid,items:cart,updatedAt:Date.now(),...(cart.length?{started:true}:{})},{merge:true}).catch(()=>{});
+}
+
+/* ===== التوجيه ===== */
+function route(){
+  const h=location.hash||"#/";
+  if(h.startsWith("#/product/"))return showProduct(h.slice(10));
+  if(h==="#/cart")return showCart();
+  if(h==="#/checkout")return showCheckout();
+  if(h.startsWith("#/invoice/"))return showInvoice(h.slice(10));
+  if(h==="#/account")return showAccount();
+  if(h==="#/admin")return showAdmin();
+  return showStore();
+}
+window.addEventListener("hashchange",()=>{trackVisit();route()});
+
+/* ===== المتجر ===== */
+function showStore(){
+  $("#app").innerHTML=`<h2>أحذية أولاد</h2>${products.length?`<div class="grid">${products.map(p=>`<a href="#/product/${esc(p.id)}" style="text-decoration:none;color:inherit"><div class="card"><img src="${esc(p.image)}" alt=""><b>${esc(p.name)}</b><div class="muted">${money(p.price)}</div></div></a>`).join("")}</div>`:`<p class="muted">لا توجد منتجات حالياً</p>`}`;
+}
+function showProduct(id){
+  const p=products.find(x=>x.id===id);
+  if(!p)return $("#app").innerHTML="<p>المنتج غير موجود</p>";
+  const sizes=[...new Set(p.sizes.map(v=>v.size))];
+  $("#app").innerHTML=`<div class="card" style="max-width:520px;margin:auto"><img src="${esc(p.image)}" alt=""><h2>${esc(p.name)}</h2><b>${money(p.price)}</b>
+  <div class="row"><label style="flex:1">المقاس<select id="sz">${sizes.map(s=>`<option>${esc(s)}</option>`).join("")}</select></label>
+  <label style="flex:1">اللون<select id="cl"></select></label></div><p class="muted" id="av"></p>
+  <button class="btn" id="addBtn">أضف للسلة</button></div>`;
+  const variant=()=>p.sizes.find(v=>v.size===$("#sz").value&&v.color===$("#cl").value);
+  const upd=()=>{
+    $("#cl").innerHTML=p.sizes.filter(v=>v.size===$("#sz").value).map(v=>`<option>${esc(v.color)}</option>`).join("");
+    const v=variant(),q=v?v.qty:0;
+    $("#av").textContent=q>0?`متاح: ${q} قطعة`:"غير متوفر حالياً";
+    $("#addBtn").disabled=q<=0;
+  };
+  $("#sz").onchange=upd;$("#cl").onchange=upd;upd();
+  $("#addBtn").onclick=()=>{
+    const v=variant(),ex=cart.find(i=>i.pid===p.id&&i.size===v.size&&i.color===v.color);
+    if(ex){if(ex.qty>=v.qty)return toast("وصلت لأقصى كمية متاحة");ex.qty++}
+    else cart.push({pid:p.id,name:p.name,price:p.price,image:p.image,size:v.size,color:v.color,qty:1});
+    saveCart();toast("اتضاف للسلة");
+  };
+}
+
+/* ===== السلة والدفع ===== */
+function showCart(){
+  if(!cart.length)return $("#app").innerHTML=`<p>السلة فاضية</p><a class="btn" href="#/">ارجع للمتجر</a>`;
+  const sub=cart.reduce((a,i)=>a+i.price*i.qty,0);
+  $("#app").innerHTML=`<h2>سلة المشتريات</h2><table><tr><th>المنتج</th><th>المقاس</th><th>اللون</th><th>الكمية</th><th>السعر</th><th></th></tr>
+  ${cart.map((i,k)=>`<tr><td>${esc(i.name)}</td><td>${esc(i.size)}</td><td>${esc(i.color)}</td><td>${i.qty}</td><td>${money(i.price*i.qty)}</td><td><button class="btn red" data-k="${k}">حذف</button></td></tr>`).join("")}</table>
+  <p>المجموع: ${money(sub)} + شحن ${money(SHIPPING)} = <b>${money(sub+SHIPPING)}</b></p><a class="btn" href="#/checkout">إتمام الطلب</a>`;
+  document.querySelectorAll("[data-k]").forEach(b=>b.onclick=()=>{cart.splice(+b.dataset.k,1);saveCart();showCart()});
+}
+function showCheckout(){
+  if(!cart.length)return location.hash="#/cart";
+  $("#app").innerHTML=`<div class="card" style="max-width:520px;margin:auto"><h2>بيانات التوصيل</h2>
+  <input id="cn" placeholder="الاسم"><input id="cp" placeholder="رقم الموبايل"><input id="cg" placeholder="المحافظة"><input id="ca" placeholder="العنوان بالتفصيل">
+  <p class="muted">الدفع كاش عند الاستلام</p><button class="btn" id="go">تأكيد الطلب</button></div>`;
+  $("#go").onclick=placeOrder;
+}
+async function placeOrder(){
+  const c={name:$("#cn").value.trim(),phone:$("#cp").value.trim(),gov:$("#cg").value.trim(),address:$("#ca").value.trim()};
+  if(!c.name||!c.phone||!c.address)return toast("اكمل البيانات المطلوبة");
+  $("#go").disabled=true;
+  const no="MS-"+Date.now().toString(36).toUpperCase().slice(-6);
+  const items=cart.map(i=>({...i})),sub=items.reduce((a,i)=>a+i.price*i.qty,0);
+  try{
+    await db.runTransaction(async t=>{
+      const refs={};items.forEach(i=>refs[i.pid]=db.collection("products").doc(i.pid));
+      const snaps={};for(const pid in refs)snaps[pid]=await t.get(refs[pid]);
+      const newSizes={};
+      for(const i of items){
+        if(!snaps[i.pid].exists)throw new Error("منتج غير موجود: "+i.name);
+        const sizes=newSizes[i.pid]||snaps[i.pid].data().sizes.map(v=>({...v}));
+        const v=sizes.find(x=>x.size===i.size&&x.color===i.color);
+        if(!v||v.qty<i.qty)throw new Error("الكمية غير متاحة: "+i.name);
+        v.qty-=i.qty;newSizes[i.pid]=sizes;
+      }
+      for(const pid in newSizes)t.update(refs[pid],{sizes:newSizes[pid]});
+      t.set(db.collection("orders").doc(no),{no,items,subtotal:sub,shipping:SHIPPING,total:sub+SHIPPING,customer:c,status:"جديد",createdAt:Date.now(),vid});
+    });
+    await db.collection("carts").doc(vid).set({items:[],ordered:true,updatedAt:Date.now()},{merge:true});
+    cart=[];localStorage.removeItem("cart");updateCount();
+    location.hash="#/invoice/"+no;
+  }catch(e){toast(e.message||"حصلت مشكلة، حاول تاني");$("#go").disabled=false}
+}
+async function showInvoice(no){
+  $("#app").innerHTML="<p>جاري التحميل...</p>";
+  const s=await db.collection("orders").doc(no).get();
+  if(!s.exists)return $("#app").innerHTML="<p>الفاتورة غير موجودة</p>";
+  const o=s.data();
+  $("#app").innerHTML=`<div class="inv"><div class="row" style="justify-content:space-between"><h2 style="color:var(--b);margin:0">Mr Sneak</h2>
+  <div><b>فاتورة رقم ${esc(o.no)}</b><div class="muted">${fmt(o.createdAt)}</div></div></div>
+  <p><b>العميل:</b> ${esc(o.customer.name)} - ${esc(o.customer.phone)}<br><b>العنوان:</b> ${esc(o.customer.gov)} - ${esc(o.customer.address)}</p>
+  <table><tr><th>المنتج</th><th>المقاس</th><th>اللون</th><th>الكمية</th><th>السعر</th></tr>
+  ${o.items.map(i=>`<tr><td>${esc(i.name)}</td><td>${esc(i.size)}</td><td>${esc(i.color)}</td><td>${i.qty}</td><td>${money(i.price*i.qty)}</td></tr>`).join("")}</table>
+  <p style="text-align:left">المجموع: ${money(o.subtotal)}<br>الشحن: ${money(o.shipping)}<br><b>الإجمالي: ${money(o.total)}</b></p>
+  <p class="muted">الدفع كاش عند الاستلام. شكراً لتسوقك من Mr Sneak</p>
+  <div class="noprint"><button class="btn" onclick="print()">طباعة / حفظ PDF</button> <a href="#/">المتجر</a></div></div>`;
+}
+
+/* ===== الحساب ===== */
+function showAccount(){
+  if(currentUser){
+    $("#app").innerHTML=`<div class="card" style="max-width:380px;margin:auto"><p>مسجل باسم: <b>${esc(currentUser.email)}</b></p><button class="btn gray" id="lo">تسجيل خروج</button></div>`;
+    $("#lo").onclick=()=>auth.signOut();return;
+  }
+  $("#app").innerHTML=`<div class="card" style="max-width:380px;margin:auto"><h2>حسابي</h2>
+  <input id="ae" type="email" placeholder="الإيميل"><input id="ap" type="password" placeholder="كلمة السر (6 أحرف على الأقل)">
+  <div class="row"><button class="btn" id="li">دخول</button><button class="btn gray" id="su">حساب جديد</button></div>
+  <p class="muted">التسجيل اختياري، والشراء متاح من غير حساب.</p></div>`;
+  const go=fn=>async()=>{try{await fn($("#ae").value.trim(),$("#ap").value);toast("تم")}catch(e){toast(e.message)}};
+  $("#li").onclick=go((e,p)=>auth.signInWithEmailAndPassword(e,p));
+  $("#su").onclick=go((e,p)=>auth.createUserWithEmailAndPassword(e,p));
+}
+
+/* ===== لوحة الإدارة ===== */
+function startAdmin(){
+  if(adminOn)return;adminOn=true;
+  if("Notification" in window&&Notification.permission==="default")Notification.requestPermission();
+  db.collection("visitors").orderBy("lastSeen","desc").limit(300).onSnapshot(s=>{visitors=s.docs.map(d=>d.data());onData()});
+  db.collection("carts").onSnapshot(s=>{carts=s.docs.map(d=>d.data());onData()});
+  db.collection("orders").orderBy("createdAt","desc").limit(300).onSnapshot(s=>{
+    if(!firstOrders)s.docChanges().forEach(c=>{if(c.type==="added")notifyOrder(c.doc.data())});
+    firstOrders=false;orders=s.docs.map(d=>({id:d.id,...d.data()}));onData();
+  });
+}
+function notifyOrder(o){
+  toast("🔔 طلب جديد: "+o.no);
+  try{const a=new (window.AudioContext||window.webkitAudioContext)(),g=a.createOscillator();g.connect(a.destination);g.start();g.stop(a.currentTime+0.4)}catch(e){}
+  if("Notification" in window&&Notification.permission==="granted")new Notification("طلب جديد - Mr Sneak",{body:o.no+" - "+money(o.total)});
+}
+function onData(){if(location.hash==="#/admin"&&currentUser&&currentUser.email===ADMIN_EMAIL)drawAdmin()}
+function showAdmin(){
+  if(!currentUser)return $("#app").innerHTML=`<p>سجّل دخول من <a href="#/account">حسابي</a> الأول</p>`;
+  if(currentUser.email!==ADMIN_EMAIL)return $("#app").innerHTML=`<p>مش مسموح لك تدخل لوحة الإدارة</p>`;
+  $("#app").innerHTML=`<div class="stats" id="st"></div>
+  <div class="tabs" id="tb"><button class="btn" data-t="visitors">الزوار</button><button class="btn off" data-t="carts">السلال</button><button class="btn off" data-t="orders">الطلبات</button><button class="btn off" data-t="products">المنتجات</button></div>
+  <div id="tab"></div>`;
+  document.querySelectorAll("#tb button").forEach(b=>b.onclick=()=>{
+    tab=b.dataset.t;document.querySelectorAll("#tb button").forEach(x=>x.classList.toggle("off",x!==b));drawAdmin();
+  });
+  startAdmin();drawAdmin();
+}
+function drawAdmin(){
+  const now=Date.now();
+  const started=carts.filter(c=>c.started).length;
+  const abandoned=carts.filter(c=>c.items&&c.items.length&&now-c.updatedAt>ABANDON_MS).length;
+  const online=visitors.filter(v=>now-v.lastSeen<5*60*1000).length;
+  $("#st").innerHTML=[["زوار",visitors.length],["نشطين الآن",online],["سلال بدأت",started],["سلال اتتركت",abandoned],["طلبات",orders.length]]
+    .map(([a,b])=>`<div class="stat"><b>${b}</b>${a}</div>`).join("");
+  if(tab==="products"&&$("#pn"))return;
+  $("#tab").innerHTML=({visitors:visitorsTab,carts:cartsTab,orders:ordersTab,products:productsTab})[tab]();
+  bindTab();
+}
+function visitorsTab(){
+  return `<div style="overflow:auto"><table><tr><th>آخر ظهور</th><th>الحالة</th><th>المكان</th><th>الجهاز</th><th>الموديل</th><th>النظام</th><th>المتصفح</th><th>الصفحة</th><th>النوع</th></tr>
+  ${visitors.map(v=>`<tr><td>${fmt(v.lastSeen)}</td><td>${Date.now()-v.lastSeen<3e5?"🟢 نشط":"—"}</td><td>${esc(v.city||"?")}، ${esc(v.country||"")}</td><td>${esc(v.device)}</td><td>${esc(v.model||"")}</td><td>${esc(v.os)}</td><td>${esc(v.browser)}</td><td>${esc(v.page)}</td><td>${esc(v.userType)}${v.email?`<br><span class="muted">${esc(v.email)}</span>`:""}</td></tr>`).join("")}</table></div>`;
+}
+function cartsTab(){
+  return `<table><tr><th>الزائر</th><th>المنتجات</th><th>الإجمالي</th><th>الحالة</th><th>آخر تحديث</th></tr>
+  ${carts.filter(c=>c.started).sort((a,b)=>b.updatedAt-a.updatedAt).map(c=>{
+    const ab=c.items.length&&Date.now()-c.updatedAt>ABANDON_MS;
+    const sum=c.items.reduce((a,i)=>a+i.price*i.qty,0);
+    return `<tr><td>${esc(c.vid)}</td><td>${c.items.map(i=>`${esc(i.name)} (${esc(i.size)}/${esc(i.color)}) × ${i.qty}`).join("<br>")||"-"}</td><td>${money(sum)}</td><td>${c.items.length?(ab?"🔴 اتتركت":"🟡 لسه بيتصفح"):"✅ اتطلبت"}</td><td>${fmt(c.updatedAt)}</td></tr>`;
+  }).join("")}</table>`;
+}
+function ordersTab(){
+  const S=["جديد","جاري التجهيز","تم الشحن","تم التسليم","ملغي"];
+  return `<table><tr><th>رقم</th><th>التاريخ</th><th>العميل</th><th>المنتجات</th><th>الإجمالي</th><th>الحالة</th><th></th></tr>
+  ${orders.map(o=>`<tr><td><a href="#/invoice/${esc(o.no)}">${esc(o.no)}</a></td><td>${fmt(o.createdAt)}</td>
+  <td>${esc(o.customer.name)}<br>${esc(o.customer.phone)}<br>${esc(o.customer.gov)} ${esc(o.customer.address)}</td>
+  <td>${o.items.map(i=>`${esc(i.name)} ${esc(i.size)}/${esc(i.color)} × ${i.qty}`).join("<br>")}</td><td>${money(o.total)}</td>
+  <td><select data-st="${esc(o.id)}">${S.map(s=>`<option ${s===(o.status||"جديد")?"selected":""}>${s}</option>`).join("")}</select></td>
+  <td><button class="btn red" data-delord="${esc(o.id)}">حذف</button></td></tr>`).join("")}</table>`;
+}
+function productsTab(){
+  return `<div class="card" style="margin-bottom:14px"><h3>إضافة منتج</h3>
+  <input id="pn" placeholder="اسم المنتج"><input id="pp" type="number" placeholder="السعر"><input id="pi" placeholder="رابط الصورة (ImgBB أو غيره)">
+  <div id="vr"></div><div class="row"><button class="btn gray" id="addv">+ مقاس ولون</button><button class="btn" id="np">حفظ المنتج</button></div>
+  <div class="row" style="margin-top:8px"><button class="btn gray" id="seed">إضافة بيانات تجريبية</button></div></div>
+  ${products.map(p=>`<div class="card" style="margin-top:12px"><div class="row" style="justify-content:space-between"><b>${esc(p.name)} - ${money(p.price)}</b><button class="btn red" data-delp="${esc(p.id)}">حذف المنتج</button></div>
+  <table>${p.sizes.map((v,k)=>`<tr><td>مقاس ${esc(v.size)}</td><td>${esc(v.color)}</td><td>الكمية <input type="number" min="0" value="${v.qty}" data-qty="${esc(p.id)}|${k}" style="width:90px"></td><td><button class="btn red" data-delv="${esc(p.id)}|${k}">حذف</button></td></tr>`).join("")}</table></div>`).join("")}`;
+}
+function addVRow(){
+  const d=document.createElement("div");d.className="row";
+  d.innerHTML=`<input class="vs" placeholder="المقاس" style="width:90px"><input class="vc" placeholder="اللون" style="width:120px"><input class="vq" type="number" placeholder="الكمية" style="width:90px"><button class="btn red" type="button">×</button>`;
+  d.querySelector("button").onclick=()=>d.remove();$("#vr").appendChild(d);
+}
+async function saveProduct(){
+  const name=$("#pn").value.trim(),price=+$("#pp").value,image=$("#pi").value.trim();
+  const sizes=[...document.querySelectorAll("#vr .row")].map(r=>({size:r.querySelector(".vs").value.trim(),color:r.querySelector(".vc").value.trim(),qty:+r.querySelector(".vq").value||0})).filter(v=>v.size&&v.color);
+  if(!name||!price||!sizes.length)return toast("اكمل الاسم والسعر ومقاس ولون على الأقل");
+  await db.collection("products").add({name,price,image,sizes,createdAt:Date.now()});
+  toast("اتضاف المنتج");
+}
+async function seedData(){
+  const demo=[["حذاء رياضي أولاد",250,1],["حذاء مدرسي جلد",320,2],["صندل أولاد صيفي",150,3]];
+  const b=db.batch();
+  demo.forEach(([name,price,n])=>b.set(db.collection("products").doc(),{name,price,image:`https://picsum.photos/seed/shoe${n}/400/400`,
+    sizes:[{size:"36",color:"أبيض",qty:5},{size:"37",color:"أسود",qty:3},{size:"38",color:"رمادي",qty:0}],createdAt:Date.now()}));
+  await b.commit();toast("اتضافت بيانات تجريبية");
+}
+function bindTab(){
+  document.querySelectorAll("[data-st]").forEach(s=>s.onchange=()=>db.collection("orders").doc(s.dataset.st).update({status:s.value}).then(()=>toast("اتحدثت الحالة")));
+  document.querySelectorAll("[data-delord]").forEach(b=>b.onclick=()=>{if(confirm("تحذف الطلب؟"))db.collection("orders").doc(b.dataset.delord).delete()});
+  document.querySelectorAll("[data-delp]").forEach(b=>b.onclick=()=>{if(confirm("تحذف المنتج؟"))db.collection("products").doc(b.dataset.delp).delete()});
+  document.querySelectorAll("[data-delv]").forEach(b=>b.onclick=()=>{
+    const[pid,k]=b.dataset.delv.split("|"),p=products.find(x=>x.id===pid);p.sizes.splice(+k,1);
+    db.collection("products").doc(pid).update({sizes:p.sizes});
+  });
+  document.querySelectorAll("[data-qty]").forEach(i=>i.onchange=()=>{
+    const[pid,k]=i.dataset.qty.split("|"),p=products.find(x=>x.id===pid);p.sizes[+k].qty=+i.value||0;
+    db.collection("products").doc(pid).update({sizes:p.sizes}).then(()=>toast("اتحدثت الكمية"));
+  });
+  if($("#addv")){$("#addv").onclick=addVRow;$("#np").onclick=saveProduct;$("#seed").onclick=seedData}
+}
+
+/* ===== التشغيل ===== */
+db.collection("products").orderBy("createdAt").onSnapshot(s=>{products=s.docs.map(d=>({id:d.id,...d.data()}));route()});
+auth.onAuthStateChanged(u=>{
+  currentUser=u;trackVisit();
+  if(u&&u.email===ADMIN_EMAIL)startAdmin();
+  route();
+});
+updateCount();
+</script>
+</body>
+</html>
