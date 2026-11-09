@@ -200,7 +200,8 @@ async function placeOrder(){
   const c={name:$("#cn").value.trim(),phone:$("#cp").value.trim(),gov:$("#cg").value.trim(),address:$("#ca").value.trim()};
   if(!c.name||!c.phone||!c.address)return toast("اكمل البيانات المطلوبة");
   $("#go").disabled=true;
-  const no="MS-"+Date.now().toString(36).toUpperCase().slice(-6);
+  const rnd=crypto.getRandomValues(new Uint32Array(2));
+  const no="MS-"+rnd[0].toString(36).toUpperCase()+rnd[1].toString(36).toUpperCase();
   const items=cart.map(i=>({...i})),sub=items.reduce((a,i)=>a+i.price*i.qty,0),ship=shipping();
   try{
     await db.runTransaction(async t=>{
