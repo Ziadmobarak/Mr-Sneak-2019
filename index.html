@@ -3,11 +3,14 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Mr Sneak</title>
+<title>MR. SNEAK</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700;900&family=Cairo:wght@400;700;900&display=swap" rel="stylesheet">
 <style>
-:root{--k:#171717;--o:#f36b35;--bg:#f3f0f9;--g:#929292;--w:#fff}
+:root{--k:#171717;--o:#F36B35;--bg:#F3F0E9;--g:#929292;--w:#fff}
 *{box-sizing:border-box}
-body{margin:0;font-family:Tahoma,Arial,sans-serif;background:var(--bg);color:var(--k)}
+body{margin:0;font-family:Montserrat,Cairo,Tahoma,Arial,sans-serif;background:var(--bg);color:var(--k)}
+.hero .tl{margin:14px 0 0;color:var(--o);font-weight:700;letter-spacing:2px;font-size:13px}
 .top{background:var(--k);color:#fff;display:flex;justify-content:space-between;align-items:center;padding:12px 20px;position:sticky;top:0;z-index:5}
 .logo{font-size:30px;font-weight:900;color:#fff;text-decoration:none;letter-spacing:.5px}
 .icons{display:flex;gap:20px}
@@ -62,7 +65,7 @@ th{background:var(--k);color:#fff}
 </head>
 <body>
 <header class="top">
-  <a class="logo" href="#/" id="logo">Mr Sneak</a>
+  <a class="logo" href="#/" id="logo">MR. SNEAK</a>
   <div class="icons">
     <a class="ic" href="#/cart" title="السلة"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.7 13.4a2 2 0 0 0 2 1.6h9.7a2 2 0 0 0 2-1.6L23 6H6"/></svg><span class="badge" id="cc">0</span></a>
     <a class="ic" href="#/account" title="حسابي"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg></a>
@@ -87,7 +90,7 @@ const money=n=>n+" ج.م";
 const fmt=t=>new Date(t).toLocaleString("ar-EG");
 function toast(m){const t=$("#toast");t.textContent=m;t.style.display="block";clearTimeout(t._h);t._h=setTimeout(()=>t.style.display="none",2400)}
 
-let STORE={name:"Mr Sneak",shipping:50,phone:""};
+let STORE={name:"MR. SNEAK",shipping:50,phone:""};
 const shipping=()=>Number(STORE.shipping)||0;
 let products=[],vendors=[],orders=[],carts=[],visitors=[];
 let cart=JSON.parse(localStorage.getItem("cart")||"[]");
@@ -144,7 +147,7 @@ function card(p){
 }
 function productGrid(list){return list.length?`<div class="grid">${list.map(card).join("")}</div>`:`<p class="muted">لا توجد منتجات حالياً</p>`}
 function showStore(){
-  $("#app").innerHTML=`<section class="hero"><h1>أحذية أولاد بأحدث التصميمات</h1><p>توصيل لكل المحافظات · الدفع كاش عند الاستلام</p></section>
+  $("#app").innerHTML=`<section class="hero"><h1>أحذية أولاد بأحدث التصميمات</h1><p>توصيل لكل المحافظات · الدفع كاش عند الاستلام</p><p class="tl">STYLE. COMFORT. CONFIDENCE.</p></section>
   ${vendors.length?`<h3 class="sec">تسوّق من التجار</h3><div class="vrow">${vendors.map(v=>`<a class="vcard" href="#/vendor/${esc(v.id)}"><img src="${esc(v.image)}" alt=""><div><b>${esc(v.name)}</b></div></a>`).join("")}</div>`:""}
   <h3 class="sec">أحدث المنتجات</h3>${productGrid(products.slice().reverse())}`;
 }
